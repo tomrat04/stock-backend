@@ -7,13 +7,8 @@ import pytz
 app = FastAPI()
 
 CACHE: Dict[str, Dict[str, Any]] = {}
-CACHE_TTL_MINUTES = 15
+CACHE_TTL_MINUTES = 15  # Cache ważny przez 15 minut
 
-
-def get_current_quarter_timestamp():
-    now = datetime.utcnow().replace(second=0, microsecond=0)
-    quarter = now.minute // 15 * 15
-    return now.replace(minute=quarter)
 
 def fetch_stock_data(ticker: str):
     t = yf.Ticker(ticker)
@@ -40,7 +35,7 @@ def fetch_stock_data(ticker: str):
         "1y": history.last("365D"),
         "3y": history.last("1095D"),
         "5y": history.last("1825D"),
-        "max": history,
+        "max": history.last("3650D"),
     }
 
     # Konwertujemy dane na listy słowników
@@ -62,15 +57,18 @@ def fetch_stock_data(ticker: str):
 @app.get("/stock")
 def get_stock(ticker: str):
     ticker = ticker.upper()
-    now_quarter = get_current_quarter_timestamp()
+    now = datetime.utcnow()
 
     cached = CACHE.get(ticker)
-    if cached and cached["quarter"] == now_quarter:
-        return cached["data"]
+    if cached:
+        # Sprawdzenie TTL
+        if now - cached["timestamp"] < timedelta(minutes=CACHE_TTL_MINUTES):
+            return cached["data"]
 
     try:
         data = fetch_stock_data(ticker)
-        CACHE[ticker] = {"data": data, "quarter": now_quarter}
+        CACHE[ticker] = {"data": data, "timestamp": now}
         return data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
